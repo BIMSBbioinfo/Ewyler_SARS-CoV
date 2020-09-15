@@ -1,0 +1,473 @@
+---
+title: "Single Cell Sequencing of SARS infected cells"
+author: "Vedran Franke, Emanyel Wyler"
+date: "June, 2020"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo       = FALSE,
+  message    = FALSE, 
+  warning    = FALSE,
+  fig.width  = 4, 
+  fig.height = 3
+)
+```
+
+```{r, echo = FALSE, include = FALSE }
+# library dependencies
+packages = c('dplyr','stringr','ggplot2','ComplexHeatmap','data.table','ggrepel')
+
+# checks whether the packages are installed, if not then installs them
+ip = as.data.frame(installed.packages())
+ip = setdiff(packages, ip$Package)
+if(length(ip) > 0){
+    for(i in ip){
+        message(paste('Installing package:', i))
+        install.packages(i)
+    }
+}
+
+# loads the packages
+suppressPackageStartupMessages({
+    invisible(lapply(packages, function(x)library(x, character.only = TRUE)))
+})
+```
+
+
+```{r, echo = FALSE, include = FALSE}
+# Parameters
+theme = theme(
+      axis.title.x     = element_text(size=16),
+      axis.title.y     = element_text(size=16),
+      axis.text.x      = element_text(size=16),
+      axis.text.y      = element_text(size=16),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      axis.line        = element_line(colour = "black"),
+      plot.title       = element_text(hjust = 0.5)
+    )
+
+```
+
+```{r}
+# ---------------------------------------------------------------------------- #
+# given a number return n colors
+ggplotColors =  function(g){
+  d <- 360/g
+  h <- cumsum(c(15, rep(d,g - 1)))
+  hcl(h = h, c = 100, l = 65)
+}
+
+```
+
+```{r, echo = FALSE, include = FALSE}
+# Data Input
+calu3 = read.csv('Calu3_Table.csv')
+
+calu3_arrows = read.csv('Calu3_Arrows.csv')
+
+calu3_corr   = read.csv('Calu3_Correlation.csv')
+
+h1299      = read.csv('H1299_Table.csv')
+
+h1299_corr = read.csv('H1299_Correlation.csv')
+```
+
+---
+
+## Figure 4
+
+### A
+
+```{r}
+calu3 %>%
+  ggplot(aes(UMAPrna_1, UMAPrna_2, color=time)) +
+  geom_point() +
+  theme + 
+  xlab('UMAP_1') +
+  ylab('UMAP_2') 
+```
+
+
+### B 1
+
+```{r}
+calu3 %>% {
+  ggplot(data=., aes(UMAPrna_1, UMAPrna_2)) +
+  geom_point(color='lightgray') +
+  geom_point(data = subset(., SCoV1.UTR3 > 0), aes(color=SCoV1.UTR3)) +
+  theme + 
+  scale_color_gradient2() +
+  xlab('UMAP_1') +
+  ylab('UMAP_2') 
+}
+```
+
+### B 2
+
+```{r}
+calu3 %>% {
+  ggplot(data=., aes(UMAPrna_1, UMAPrna_2)) +
+  geom_point(color='lightgray') +
+  geom_point(data = subset(., SCoV2.UTR3 > 0), aes(color=SCoV2.UTR3)) +
+  theme + 
+  scale_color_gradient2() +
+  xlab('UMAP_1') +
+  ylab('UMAP_2') 
+}
+```
+
+### C 1
+
+```{r}
+calu3 %>%
+  mutate(cluster = factor(cluster)) %>% {
+  ggplot(data=., aes(UMAPrna_1, UMAPrna_2, color=cluster)) +
+  geom_point() +
+  theme + 
+  xlab('UMAP_1') +
+  ylab('UMAP_2') 
+}
+```
+
+
+### C 2
+
+```{r, fig.width = 6, fig.height = 3}
+calu3 %>%
+  mutate(cluster = factor(cluster)) %>%
+  dplyr::select(cluster, SCoV1.UTR3, SCoV2.UTR3) %>%
+  melt() %>% {
+  ggplot(data=., aes(cluster, value, color=variable)) +
+  geom_boxplot() +
+  theme + 
+  xlab('cluster') +
+  ylab('expression') 
+}
+```
+
+### C 3
+
+```{r, fig.width = 6, fig.height = 3}
+calu3 %>%
+  mutate(cluster = factor(cluster)) %>%
+  dplyr::select(cluster, exon_IFIT2, exon_ARRDC3, exon_IFNB1) %>%
+  melt() %>%
+  mutate(variable = str_replace(variable,'exon_','')) %>% 
+  mutate(variable = factor(variable, levels=c('IFIT2','ARRDC3','IFNB1'))) %>% {
+  ggplot(data=., aes(cluster, value, color=variable)) +
+  geom_boxplot(size=.5) +
+  theme + 
+  xlab('cluster') +
+  ylab('expression') 
+}
+```
+
+### D 1
+
+```{r}
+calu3 %>% 
+  dplyr::rename(IFIT2 = exon_IFIT2) %>% {
+  ggplot(data=., aes(UMAPrna_1, UMAPrna_2)) +
+  geom_point(color='lightgray') +
+  geom_point(data = subset(., IFIT2 > 0), aes(color=IFIT2)) +
+  theme + 
+  scale_color_gradient2() +
+  xlab('UMAP_1') +
+  ylab('UMAP_2') 
+}
+```
+
+
+### D 2
+
+```{r}
+calu3 %>% 
+  dplyr::rename(ARRDC3 = exon_ARRDC3) %>% {
+  ggplot(data=., aes(UMAPrna_1, UMAPrna_2)) +
+  geom_point(color='lightgray') +
+  geom_point(data = subset(., ARRDC3 > 0), aes(color=ARRDC3)) +
+  theme + 
+  scale_color_gradient2() +
+  xlab('UMAP_1') +
+  ylab('UMAP_2') 
+}
+```
+
+### D3
+
+```{r}
+calu3 %>% 
+  dplyr::rename(IFNB1 = exon_IFNB1) %>% {
+  ggplot(data=., aes(UMAPrna_1, UMAPrna_2)) +
+  geom_point(color='lightgray') +
+  geom_point(data = subset(., IFNB1 > 0), aes(color=IFNB1)) +
+  theme + 
+  scale_color_gradient2() +
+  xlab('UMAP_1') +
+  ylab('UMAP_2') 
+}
+```
+
+### E 1
+
+```{r, fig.width = 5, fig.height = 3}
+calu3 %>% 
+  filter(type == 'S2') %>%
+  dplyr::rename(IFIT2  = exon_IFIT2) %>%
+  dplyr::rename(ARRDC3 = exon_ARRDC3) %>%
+  arrange(SCov2_Load) %>%
+  mutate(index = head(rep(seq(1,n(), by=50), each=50), n())) %>%
+  group_by(index) %>%
+  summarize(
+    IFIT2  = mean(IFIT2),
+    ARRDC3 = mean(ARRDC3)
+  ) %>% 
+  melt(id.vars='index') %>% {
+  ggplot(data=., aes(index, value, color=variable)) +
+  geom_point() +
+  facet_wrap(~variable, ncol = 1) +
+  theme +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+    xlab('SARS-CoV-2')
+}
+```
+
+### E 2
+
+```{r, fig.width = 5, fig.height = 3}
+calu3 %>% 
+  filter(type == 'S1') %>%
+  dplyr::rename(IFIT2  = exon_IFIT2) %>%
+  dplyr::rename(ARRDC3 = exon_ARRDC3) %>%
+  arrange(SCov1_Load) %>%
+  mutate(index = head(rep(seq(1,n(), by=50), each=50), n())) %>%
+  group_by(index) %>%
+  summarize(
+    IFIT2  = mean(IFIT2),
+    ARRDC3 = mean(ARRDC3)
+  ) %>% 
+  melt(id.vars='index') %>% {
+  ggplot(data=., aes(index, value, color=variable)) +
+  geom_point() +
+  facet_wrap(~variable, ncol = 1) +
+  theme +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  xlab('SARS-CoV-1')
+
+}
+```
+
+---
+
+## Figure 5
+
+### A
+
+```{r, fig.width = 5, fig.height = 4}
+calu3 %>% 
+  mutate(cluster = as.factor(cluster)) %>% {
+  ggplot(data=., aes(UMAPrna_1, UMAPrna_2)) +
+  geom_point(data=., aes(color = cluster), size = .1) +
+  geom_segment(data = calu3_arrows,
+    aes( x = x0, y = y0, xend = x1, yend = y1),
+    arrow = arrow(length = unit(calu3_arrows$len,'cm'))
+    ) +
+  theme + 
+  xlab('UMAP_1') +
+  ylab('UMAP_2') 
+}
+
+
+```
+
+### B
+
+```{r}
+calu3 %>% 
+  dplyr::rename(IFIT2 = intron_IFIT2) %>% 
+  mutate(IFIT2 = log2(IFIT2)) %>% {
+  ggplot(data=., aes(UMAPrna_1, UMAPrna_2)) +
+  geom_point(color='lightgray') +
+  geom_point(data = subset(., IFIT2 > 0), aes(color=IFIT2)) +
+  theme + 
+  scale_color_gradient2() +
+  xlab('UMAP_1') +
+  ylab('UMAP_2') 
+}
+```
+
+### C
+
+```{r}
+calu3 %>% 
+  dplyr::rename(IL6 = intron_IL6) %>% 
+    mutate(IL6 = log2(IL6)) %>% {
+  ggplot(data=., aes(UMAPrna_1, UMAPrna_2)) +
+  geom_point(color='lightgray') +
+  geom_point(data = subset(., IL6 > 0), aes(color=IL6)) +
+  theme + 
+  scale_color_gradient2() +
+  xlab('UMAP_1') +
+  ylab('UMAP_2') 
+}
+```
+
+### D
+
+```{r}
+calu3 %>% 
+  dplyr::rename(CCL5 = intron_CCL5) %>% 
+      mutate(CCL5 = log2(CCL5)) %>% {
+  ggplot(data=., aes(UMAPrna_1, UMAPrna_2)) +
+  geom_point(color='lightgray') +
+  geom_point(data = subset(., CCL5 > 0), aes(color=CCL5)) +
+  theme + 
+  scale_color_gradient2() +
+  xlab('UMAP_1') +
+  ylab('UMAP_2') 
+}
+```
+
+
+### E
+
+```{r, fig.width = 7, fig.height = 3}
+# colum annotation
+calu_subset = calu3 %>%
+    filter(cluster %in% c('15','16','17','18','19'))
+ra = calu_subset  %>%
+  dplyr::select(SCov2_Load, cluster, time) %>%
+  mutate(cluster = cluster) %>%
+  mutate(time = as.character(time))
+
+ra_cols = list(
+  SCov2_Load = circlize::colorRamp2(colors=c('white','firebrick'), breaks=c(0,max(ra$SCov2_Load))),
+  cluster = ggplotColors(length(unique(ra$cluster))),
+  time    = ggplotColors(length(unique(ra$time)))
+)
+names(ra_cols$cluster) = sort(unique(ra$cluster))
+names(ra_cols$time) = sort(unique(ra$time))
+rownames(ra) = calu_subset$cell_id
+ord = order(as.numeric(ra$cluster), ra$SCov2_Load)
+ra = HeatmapAnnotation(df = ra[ord,], name='ra', which = 'column', col=ra_cols)
+
+# get the expression values
+expr_mat = calu_subset %>%
+  dplyr::select(contains('intron')) %>%
+  magrittr::set_colnames(str_replace(colnames(.),'intron_',''))
+gnames = c('IFIT2','OAS2','CCL5','IL6','NFKBIA','TNF','ATXN10')
+expr_mat = expr_mat[,gnames]
+rownames(expr_mat) = calu_subset$cell_id
+expr_mat = log2(expr_mat + 1)
+# plot the matrix
+Heatmap(as.matrix(t(expr_mat)[,ord]),
+  show_column_names = FALSE,
+  show_row_names    = TRUE,
+  cluster_columns   = FALSE,
+  cluster_rows      = FALSE,
+  col               =circlize::colorRamp2(
+    colors=c('white','firebrick'),
+    breaks=c(0,max(expr_mat))),
+    top_annotation = ra, row_names_gp = gpar(fontsize = 8)
+  )
+```
+
+
+## Figure 6
+
+
+### A 
+
+```{r}
+h1299_corr %>%
+  filter(!str_detect(gene_id,'SCoV')) %>% {
+  ggplot(data=., aes(cor1, cor2)) +
+  geom_point(color='lightgray', size=.5) +
+  geom_point(data = subset(., gene_id == 'HSP90AA1'), color='firebrick') +
+  geom_text_repel(data = subset(., gene_id %in% c('HSP90AA1')), aes(label=gene_id)) +
+  theme + 
+  xlab('Correlation mRNA\nwithSARS-CoV load') +
+  ylab('Correlation mRNA\nwith SARS-CoV-2 load') +
+  geom_hline(yintercept = 0) + 
+  geom_vline(xintercept = 0) +
+  xlim(c(-0.3,0.3)) +
+  ylim(c(-0.3,0.3))
+}
+```
+
+### B
+
+```{r}
+h1299 %>% 
+  dplyr::rename(HSP90AA1 = exon_HSP90AA1) %>% 
+  mutate(HSP90AA1 = log2(HSP90AA1)) %>% 
+  mutate(sample = type) %>%
+  mutate(virus = case_when(
+    SCov2_Load >  0 & sample == 'S2' ~ 'S2 With Virus',
+    SCov2_Load == 0 & sample == 'S2' ~ 'S2 Without Virus',
+    TRUE ~ 'Other'
+  )) %>% 
+  mutate(virus = factor(virus, levels = c('Other','S2 Without Virus','S2 With Virus'))) %>% {
+  ggplot(data=., aes(sample, HSP90AA1, color=virus)) +
+  geom_boxplot() +
+  theme +
+  ylab('HSP90AA1 mRNA') +
+  scale_color_manual(values=c('black','lightgray','firebrick'))
+}
+```
+
+### C
+
+```{r, fig.width = 4, fig.height = 4} 
+calu3_corr %>%
+  filter(!str_detect(gene_id,'SCoV')) %>% {
+  ggplot(data=., aes(cor1, cor2)) +
+  geom_point(color='lightgray', size=.5) +
+  geom_point(data = subset(., gene_id == 'HSP90AA1'), color='firebrick') +
+  geom_text_repel(data = subset(calu3_corr, gene_id %in% c('MALAT1','HSP90AA1','MT-RNR2')), aes(label=gene_id)) +
+  theme + 
+  xlab('Correlation mRNA\nwithSARS-CoV load') +
+  ylab('Correlation mRNA\nwith SARS-CoV-2 load') +
+  geom_hline(yintercept = 0) + 
+  geom_vline(xintercept = 0) +
+  xlim(c(-0.25,0.25)) +
+  ylim(c(-0.25,0.25))
+}
+```
+
+### D
+
+```{r}
+calu3 %>% 
+  filter(time == '4h') %>%
+  dplyr::rename(HSP90AA1 = exon_HSP90AA1) %>% 
+  mutate(HSP90AA1 = log2(HSP90AA1)) %>% 
+  mutate(sample = type) %>%
+  mutate(virus = case_when(
+    SCov2_Load >  0 & sample == 'S2' ~ 'S2 With Virus',
+    SCov2_Load == 0 & sample == 'S2' ~ 'S2 Without Virus',
+    SCov1_Load >  0 & sample == 'S1' ~ 'S1 With Virus',
+    SCov1_Load == 0 & sample == 'S1' ~ 'S1 Without Virus',
+    TRUE ~ 'Mock'
+  )) %>% 
+  mutate(virus = factor(virus, levels = c('Mock','S1 Without Virus','S1 With Virus','S2 Without Virus','S2 With Virus'))) %>% {
+  ggplot(data=., aes(sample, HSP90AA1, color=virus)) +
+  geom_boxplot() +
+  theme +
+  ylab('HSP90AA1 mRNA') +
+  scale_color_manual(values=c('black','lightgray','firebrick','lightgray','firebrick'))
+}
+```
+
