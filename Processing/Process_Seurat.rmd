@@ -1,0 +1,244 @@
+---
+title: "Basic Processing of SCov1 and SCov2 infected cells"
+output: html_document
+  params:
+    # minimal number of genes per cell
+    n_sub: 2000
+    
+    # PCA dimensions to use for umap 
+    dims_use: 20
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo       = FALSE,
+  fig.width  = 5, 
+  fig.height = 4.5
+)
+```
+
+# README
+
+This document is used for preliminary processing of single cell data for:
+
+
+The data can be downloaded from the following Zenodo id: 10.5281/zenodo.4031204
+
+To run the functions, download the data and replace the variable **rds_input_file**
+
+The same processing pipeline can be used for both Calu3 and H1299 cells.
+
+In short, the pipeline installs the dependencies, does scRNA seq pre-processing, 
+embedds the data based on diffusion maps, and calculates the velocity field.
+
+## Accessory Functions
+
+```{r Libraries}
+LoadPackages = function(packages){
+  
+  # Checks whether BiocManager package exists
+  if(!'BiocManager' %in% rownames(installed.packages()))
+    stop('Please install the BiocManager package')
+  
+  # Installs the non existing packages
+  non_existing_packages = setdiff(packages, rownames(installed.packages()))
+  if(length(non_existing_packages) > 0){
+    
+    # check for seurat wrappers
+    if('SeuratWrappers' %in% non_existing_packages)
+       non_existing_packages = c(setdiff(non_existing_packages, 'SeuratWrappers'),
+                                 'satijalab/seurat-wrappers')
+    
+    message('Installing packages ...')
+    BiocManager::install(non_existing_packages)
+  }
+  
+  # Loads all of the packages
+  message('Loading packages ...')
+  invisible(
+    lapply(packages, function(x){
+      suppressPackageStartupMessages(
+        library(x, character.only = TRUE)
+      )
+    })
+  )
+}
+
+# ---------------------------------------------------------------------------- #
+hh = function(x)x[1:5,1:5]
+
+# ---------------------------------------------------------------------------- #
+# uses louvain clustering on an embedding matrix
+Cluster_Diffusion_Maps = function(
+    lf_mat,
+    k_vec = c(3, 5, 10, 25, 50, 100)
+){
+    message('Cluster louvain ...')
+    suppressPackageStartupMessages({
+        library(igraph)
+        library(FNN)
+    })
+    lk = list()
+    for(k in k_vec){
+        message(k)
+       knn.norm = get.knn(lf_mat, k = k)
+       knn.norm = data.frame(
+           from   = rep(1:nrow(knn.norm$nn.index),
+           k),
+           to     = as.vector(knn.norm$nn.index),
+           weight = 1/(1 + as.vector(knn.norm$nn.dist)))
+       nw.norm = graph_from_data_frame(knn.norm, directed = FALSE)
+       nw.norm = simplify(nw.norm)
+       lc.norm = cluster_louvain(nw.norm)
+       lk[[paste0('luv_',k)]] = as.factor(membership(lc.norm))
+    }
+    dk = as.data.frame(lk)
+    return(dk)
+}
+
+```
+
+
+## Libraries
+
+
+```{r, dependson = 'Libraries' }
+packages = c(
+  "Seurat",
+  "dplyr",
+  "ggplot2",
+  "ComplexHeatmap",
+  "igraph",
+  "FNN",
+  "RColorBrewer",
+  "stringr",
+  "cowplot",
+  "patchwork",
+  "destiny",
+  "SingleCellExperiment",
+  "SeuratWrappers"
+)
+LoadPackages(packages)
+```
+
+# Processing
+
+## Load Data
+
+```{r}
+# Input RDS file 
+rds_input_file = ''
+  
+# Here specify the output directory
+outpath = './'
+
+```
+
+```{r}
+output_directory = file.path(outpath, paste('Velo',n_sub,sep='_'));dir.create(outpath, showWarnings=FALSE)
+```
+
+
+## Preprocessing
+
+```{r}
+# read the input seurat object
+seu     = readRDS(rds_input_file)
+
+# filter the number of genes
+seu_sub = seu[, seu$nFeature_RNA > params$n_sub]
+
+# normalize
+seu_sub = NormalizeData(seu_sub)
+
+# scale
+seu_sub = ScaleData(seu_sub)
+
+# Find variable features
+seu_sub = FindVariableFeatures(seu_sub)
+
+# Run PCA
+seu_sub = RunPCA(seu_sub, verbose=FALSE)
+
+# Run UMAP on selected dims
+seu_sub = RunUMAP(seu_sub, dims = 1:params$dims_use)
+```
+
+## SCov Load
+
+```{r}
+cind1 = grep('^SCoV1', rownames(seu_sub), value=TRUE)
+cind2 = grep('^SCoV2', rownames(seu_sub), value=TRUE)
+mat  = GetAssayData(seu_sub, 'data')
+mat_sel1 = as.matrix(mat[cind1,])
+mat_sel2 = as.matrix(mat[cind2,])
+seu_sub@meta.data$SCov1_Load = colSums(mat_sel1)
+seu_sub@meta.data$SCov2_Load = colSums(mat_sel2)
+```
+
+
+## Diffusion Maps
+
+```{r}
+# Preapre dataset for diffustion map estimation
+feats = VariableFeatures(seu_sub)
+DefaultAssay(seu_sub) = 'RNA'
+mat   = GetAssayData(seu_sub)[feats,]
+mat   = as.matrix(mat)
+
+# Run diffusion map
+mat       = mat[!duplicated(mat),]
+sce       = SingleCellExperiment(assays = list(logcounts = mat))
+dm_rna    = DiffusionMap(sce)
+
+# Run UMAP on diffusion map embeddings
+umap_rna  = RunUMAP(eigenvectors(dm_rna), reduction.key = 'UMAPrna_')
+rownames(umap_rna@cell.embeddings) = colnames(seu_sub)
+seu_sub$umap_rna = umap_rna
+
+# Fetch the diffusion map KNN
+dm_dpt                = DPT(dm_rna)
+dm_dist_mat           = as.matrix(dm_dpt)
+rownames(dm_dist_mat) = colnames(dm_dist_mat) = colnames(mat)
+
+# Run diffusion map based knn clustering
+dm_clust = Cluster_Diffusion_Maps(eigenvectors(dm_rna))
+
+dm_ev = data.frame(cell_id = colnames(seu_sub), eigenvectors(dm_rna))
+
+colnames(dm_clust) = paste0('virus_',colnames(dm_clust))
+seu_sub@meta.data = cbind(seu_sub@meta.data, dm_clust)
+```
+
+
+## Velocity Estimation
+
+```{r}
+# runs the velocity estimation 
+velo = RunVelocity(
+  seu_sub,
+  spliced           = "RNA",
+  unspliced         = "Unspliced",
+  ambiguous         = NULL,
+  spliced.average   = 0.1,
+  unspliced.average = 0.05,
+  reduction         = "pca",
+  group.by          = "ident",
+  deltaT            = 1,
+  kCells            = 50,
+  fit.quantile      = 0.05,
+  ncores = 16, verbose = TRUE
+)
+
+delta    = as.matrix(Tool(object = velo, slot = 'RunVelocity')$deltaE)
+seu_sub$Velo = CreateAssayObject(data = delta)
+```
+
+
+# Save the resulting Seurat object
+
+```{r}
+outfile = file.path(output_directory, 'Seurat_Processed.rds')
+saveRDS(seu_sub, outfile)
+```
+
