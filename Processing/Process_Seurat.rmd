@@ -21,7 +21,6 @@ knitr::opts_chunk$set(
 
 This document is used for preliminary processing of single cell data for:
 
-
 The data can be downloaded from the following Zenodo id: 10.5281/zenodo.4031204
 
 To run the functions, download the data and replace the variable **rds_input_file**
@@ -34,6 +33,8 @@ embedds the data based on diffusion maps, and calculates the velocity field.
 ## Accessory Functions
 
 ```{r Libraries}
+# Checks whether the dependencies are installed and loads them
+# If they are not installed, installs the dependencies
 LoadPackages = function(packages){
   
   # Checks whether BiocManager package exists
@@ -68,8 +69,8 @@ LoadPackages = function(packages){
 hh = function(x)x[1:5,1:5]
 
 # ---------------------------------------------------------------------------- #
-# uses louvain clustering on an embedding matrix
-Cluster_Diffusion_Maps = function(
+# uses graph based clustering on diffusion coordinates
+Bin_Diffusion_Maps = function(
     lf_mat,
     k_vec = c(3, 5, 10, 25, 50, 100)
 ){
@@ -164,14 +165,19 @@ seu_sub = RunPCA(seu_sub, verbose=FALSE)
 seu_sub = RunUMAP(seu_sub, dims = 1:params$dims_use)
 ```
 
-## SCov Load
+## Viral Load Calculation
 
 ```{r}
+# Extract viral genes
 cind1 = grep('^SCoV1', rownames(seu_sub), value=TRUE)
 cind2 = grep('^SCoV2', rownames(seu_sub), value=TRUE)
+
+# Extract viral expression
 mat  = GetAssayData(seu_sub, 'data')
 mat_sel1 = as.matrix(mat[cind1,])
 mat_sel2 = as.matrix(mat[cind2,])
+
+# Calculate the load
 seu_sub@meta.data$SCov1_Load = colSums(mat_sel1)
 seu_sub@meta.data$SCov2_Load = colSums(mat_sel2)
 ```
@@ -201,8 +207,8 @@ dm_dpt                = DPT(dm_rna)
 dm_dist_mat           = as.matrix(dm_dpt)
 rownames(dm_dist_mat) = colnames(dm_dist_mat) = colnames(mat)
 
-# Run diffusion map based knn clustering
-dm_clust = Cluster_Diffusion_Maps(eigenvectors(dm_rna))
+# Run diffusion map based knn binning
+dm_clust = Bin_Diffusion_Maps(eigenvectors(dm_rna))
 
 dm_ev = data.frame(cell_id = colnames(seu_sub), eigenvectors(dm_rna))
 
